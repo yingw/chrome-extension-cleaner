@@ -1,0 +1,11 @@
+# Public-tree ignore list. Maintained in the PRIVATE repo at
+# scripts/public-overlay/.gitignore and overlaid at export — never edit it
+# in the public repo. Deliberately minimal: it must NOT name any internal
+# path (docs/, tooling, editor state), so a reader learns nothing private.
+
+# Dependencies & build outputs
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+*.log
+.DS_Store

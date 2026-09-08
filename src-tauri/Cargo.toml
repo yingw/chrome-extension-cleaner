@@ -1,0 +1,52 @@
+[package]
+name = "chrome-extension-cleaner"
+version = "1.0.0"
+description = "Inspect and clean stale Chrome extension version folders"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "chrome_extension_cleaner_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+# AI testing bridge (screenshots, DOM, clicks). Pinned tag; must match the
+# mcp-server-ts bridge checkout. Optional, but enabled by default so plain
+# `tauri dev` / `cargo build` get it with no extra flag (see lib.rs).
+# Release builds never link it (debug_assertions gate).
+tauri-plugin-mcp = { git = "https://github.com/P3GLEG/tauri-plugin-mcp", tag = "v0.3.1", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+# Extension icon encoding for the frontend (mirrors RetroPlay's base64 0.22 usage).
+base64 = "0.22"
+# Detect the OS locale at startup so the native menu labels follow the system
+# language (zh/en), matching RetroPlay's multi-language menu. sys_locale reads
+# NSLocale on macOS / GetUserDefaultLocaleName on Windows — reliable for GUI
+# apps, unlike the LANG env var that Finder-launched apps do not inherit.
+sys-locale = "0.3"
+
+[features]
+# dev-mcp is opt-in and OFF by default: `npm run dev:mcp` enables it.
+# Plain `cargo build`, `cargo test` and every release artifact never touch
+# the plugin. Registration itself is still gated on debug_assertions (lib.rs).
+default = []
+dev-mcp = ["dep:tauri-plugin-mcp"]
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

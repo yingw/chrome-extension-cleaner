@@ -1,0 +1,482 @@
+/* Chrome Extension Cleaner — themeable, fixed header + bottom actionbar layout.
+   2026-09-08: the footer status bar was deleted; there is no footer any more. */
+:root{
+  color-scheme: light;
+  --bg:#f4f6fb; --panel:#ffffff; --text:#1c2333; --muted:#667085; --border:#e4e7f0;
+  --accent:#2563eb; --accent-soft:#e8effd; --good:#15803d; --good-bg:#e7f6ec;
+  --off:#b45309; --off-bg:#fef3e2; --disabled:#dc2626; --disabled-bg:#fdecea;
+  --warn-bg:#fff7e6; --warn-bd:#e8b93e; --warn-fg:#6b4e00; --code-bg:#eef1f6;
+  --shadow:0 1px 2px rgba(16,24,40,.06),0 4px 16px rgba(16,24,40,.06);
+  /* Semantic aliases. These resolve lazily against the ACTIVE theme at the
+     point of use, so the [data-theme="dark"] block needs no duplicates:
+     --card = panel surface, --fg = primary text, --hover = subtle hover fill. */
+  --card:var(--panel); --fg:var(--text); --hover:var(--accent-soft);
+  /* Window-chrome fusion (Phase M): --tb-h records the measured titlebar height
+     (estimate until M acceptance fills in the real value; Win/Linux caption row
+     consumes it later), --tb-left-inset reserves the traffic-light zone on macOS. */
+  --tb-h:56px; --tb-left-inset:20px;
+}
+/* Platform marker is set before first paint by the Rust init script (M5). */
+[data-os="macos"]{ --tb-left-inset:78px; }
+[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0f1420; --panel:#171e2e; --text:#e6ebf5; --muted:#9aa4bb; --border:#28324a;
+  --accent:#5b8cff; --accent-soft:#22345c; --good:#4ade80; --good-bg:#14301f;
+  --off:#fbbf24; --off-bg:#3a2a10; --disabled:#f87171; --disabled-bg:#3a1e22;
+  --warn-bg:#3a2d12; --warn-bd:#a97e1f; --warn-fg:#f5d67b; --code-bg:#232c44;
+  --shadow:0 1px 2px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--bg); color:var(--text);
+  display:flex; flex-direction:column; height:100vh; overflow:hidden;
+}
+/* ---- fixed header ---- */
+header{flex:0 0 auto; background:var(--panel); border-bottom:1px solid var(--border); box-shadow:var(--shadow); z-index:20}
+.hd-in{padding:12px 20px; padding-left:var(--tb-left-inset); display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+.hd-in h1{font-size:17px; margin:0; font-weight:650}
+.hd-in .sub{color:var(--muted); font-size:12px}
+/* Small version chip next to the product name in the title bar. */
+.hd-in h1 .ver{font-size:11px; font-weight:500; color:var(--muted); margin-left:8px; padding:1px 7px; border:1px solid var(--border); border-radius:999px; letter-spacing:.02em; vertical-align:middle}
+.hd-in .sp{flex:1}
+/* System-key zone dividers: macOS (after the traffic-light inset, before the
+   logo) and Win/Linux (before the caption group). Shown only where its zone
+   exists; non-clickable so it stays part of the drag region. */
+.vdiv{display:none; width:1px; height:20px; background:var(--border); flex:0 0 auto}
+[data-os="macos"] .vdiv.only-macos{display:block}
+[data-os="windows"] .vdiv.only-caption,[data-os="linux"] .vdiv.only-caption{display:block}
+/* Self-drawn caption (Phase W1): hidden unless data-os is windows/linux
+   (macOS keeps native traffic lights; plain-browser preview shows nothing). */
+.caption{display:none}
+[data-os="windows"] .caption,[data-os="linux"] .caption{display:inline-flex; align-items:center; gap:6px; padding-left:8px}
+.capbtn{display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:0; background:transparent; color:var(--muted); cursor:pointer; padding:0}
+/* Windows: no base fill, square hover. Linux: GNOME-style circular fill. */
+[data-os="windows"] .capbtn{border-radius:6px}
+[data-os="windows"] .capbtn:hover{background:var(--hover); color:var(--fg)}
+[data-os="linux"] .capbtn{border-radius:50%; background:var(--code-bg)}
+[data-os="linux"] .capbtn:hover{filter:brightness(.93); color:var(--fg)}
+.capbtn.close:hover{background:#e81123; color:#fff; filter:none}
+.capbtn svg{width:11px; height:11px; display:block}
+/* Blurred (inactive) window: dim the caption group. */
+.win-blur .caption{opacity:.55}
+/* TEMP PREVIEW ONLY (remove before Phase W ships): OS switcher chip row. */
+.os-preview{display:inline-flex; gap:4px; padding-left:8px}
+.os-preview[hidden]{display:none}
+.os-preview button{width:24px; height:24px; border:1px dashed var(--border); border-radius:6px; background:transparent; color:var(--muted); font-size:11px; cursor:pointer; padding:0}
+.os-preview button.on{border-style:solid; border-color:var(--accent); color:var(--accent); font-weight:700}
+.tbtn{border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:8px; padding:6px 12px; cursor:pointer; font-size:13px}
+.tbtn:hover{border-color:var(--accent)}
+.tbtn.ghost-on{border-color:var(--accent); color:var(--accent); font-weight:600; background:var(--accent-soft)}
+/* Empty-state action buttons: the exact accent look that used to be an inline
+   style on two buttons, now a single shared class (border comes from `button`). */
+.empty-btn{border-color:var(--accent); color:var(--accent); font-weight:600}
+/* GitHub link sits beside the version chip in the title bar — it is
+   informational (the project's home), not an app action like the theme /
+   language buttons on the right. Muted grey by default, brightens on hover,
+   so it reads as a quiet mark rather than a clickable control. */
+.ghbtn{display:inline-flex; align-items:center; justify-content:center; vertical-align:middle; text-decoration:none; color:var(--muted); padding:3px; border-radius:6px; transition:color .15s ease, background .15s ease}
+.ghbtn:hover{color:var(--accent); background:var(--accent-soft)}
+.ghbtn svg{width:16px; height:16px; display:block; fill:currentColor}
+/* ---- scrollable middle ---- */
+main{flex:1 1 auto; overflow-y:auto; scroll-behavior:smooth; -webkit-mask-image:linear-gradient(to bottom, transparent, black 28px, black calc(100% - 28px), transparent); mask-image:linear-gradient(to bottom, transparent, black 28px, black calc(100% - 28px), transparent)}
+.mn-in{max-width:1200px; margin:0 auto; padding:16px 20px 24px}
+/* The .warn class is shared by the Chrome-running banner (#chromeWarn) AND the
+   Reclaimable card's "to-do" highlight (.card.warn). It must NOT carry any
+   banner-specific box model or typography: those leak onto the card and make
+   the three summary cards different sizes (e.g. margin-bottom shortens the
+   middle card by 12px, font-size shrinks its text). Banner visuals live on
+   #chromeWarn; the card's .warn is a pure palette hook toggled from JS. */
+/* 2026-09-06: the Chrome-running warning (persistent) and the temporary toast
+   share ONE notification slot. They are mutually exclusive: when a toast is up
+   the warn flips away, and flips back when the toast clears. Both chips use the
+   SAME box model (height/radius/close button) so the swap reads as one chip
+   changing color, not two stacked bars.
+   NOTE: the shared box model lives on `.notif-slot > .warn` / `.notif-slot > .toast`,
+   NOT on the bare `.warn` class — `.warn` is also used by .card.warn and a
+   banner-specific box model would leak onto the summary cards. */
+/* Both chips share ONE grid cell (1/1). The cell auto-sizes to the WIDER of the
+   two, so the slot never collapses when the warn is hidden (display:none) — the
+   toast (an in-flow grid item) then drives the width instead. The old
+   position:absolute toast collapsed the slot to its min-width when the warn was
+   gone, squashing long toasts into many lines. */
+/* 2026-09-08: the slot is now a BODY-LEVEL overlay centred just above the
+   actionbar. It used to live inside the footer, which is gone — that footer's
+   two text blocks (status line, version chip) only repeated what the header and
+   the summary cards already show.
+   position:fixed is safe again: the original reason for keeping the toast
+   in-flow was that the footer grew with the log and a hard-coded `bottom` would
+   drift. With the log gone the bottom bar has a constant height.
+   width:max-content keeps a toast ONE line instead of collapsing to its longest
+   word; max-width caps it so a long toast wraps instead of running off-screen.
+   pointer-events:none so the invisible (empty) slot never swallows clicks —
+   its children re-enable events only while shown. */
+.notif-slot{position:fixed; left:50%; bottom:76px; transform:translateX(-50%);
+  z-index:70; display:grid; justify-items:center; align-items:center; min-height:32px;
+  width:max-content; max-width:min(560px, 80vw); pointer-events:none}
+.notif-slot > .warn,
+.notif-slot > .toast{grid-area:1 / 1; display:flex; align-items:center; gap:8px;
+  min-height:32px; padding:6px 12px; border-radius:10px; font-size:13px; border:1px solid;
+  max-width:min(560px, 80vw); box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.notif-slot > .warn{background:var(--warn-bg); color:var(--warn-fg); border-color:var(--warn-bd);
+  white-space:nowrap; overflow:hidden; pointer-events:auto; opacity:1; transform:translateY(0);
+  transition:opacity .22s ease-out, transform .22s ease-out}
+/* The Chrome-running warning text must NOT wrap — it truncates with an ellipsis
+   so the single-line banner never grows taller. The .x close button keeps its
+   fixed 22px (flex:0 0 22px) and stays fully visible on the right. */
+.notif-slot > .warn > span{overflow:hidden; text-overflow:ellipsis; min-width:0}
+.notif-slot > .toast{background:var(--panel); color:var(--text); border-color:var(--accent);
+  opacity:0; pointer-events:none; transform:translateY(8px);
+  transition:opacity .16s ease-in, transform .16s ease-in}
+.notif-slot > .toast.err{border-color:var(--danger)}
+/* The persistent warn is gone when dismissed or Chrome is stopped/undetected. */
+.notif-slot.no-warn > .warn{display:none}
+/* 2026-09-08 "appear" motion, replacing the old ±110% roller (that one existed
+   only because two chips fought over one cell; centred in mid-air a full-height
+   slide reads as "where did that come from?"). Now: fade IN while rising 8px,
+   fade OUT while sinking 6px. Displacement is deliberately tiny — the slot
+   clears the actionbar by ~16px, so a bigger slide would cross the buttons.
+   The two chips never stack: a new toast replaces whatever is showing in the
+   same single grid cell and resets the 3s timer. */
+.notif-slot.state-toast > .warn{opacity:0; pointer-events:none; transform:translateY(6px);
+  transition:opacity .16s ease-in, transform .16s ease-in}
+.notif-slot.state-toast > .toast{opacity:1; pointer-events:auto; transform:translateY(0);
+  transition:opacity .22s ease-out, transform .22s ease-out}
+/* Identical close button for both chips — only the frame color differs. */
+.notif-slot .x{margin-left:auto; flex:0 0 22px; width:22px; height:22px; display:inline-flex;
+  align-items:center; justify-content:center; border:none; background:transparent;
+  color:inherit; opacity:.6; cursor:pointer; font-size:14px; line-height:1; border-radius:6px; padding:0}
+.notif-slot .x:hover{opacity:1}
+/* Non-fatal info banner: Chrome not detected (distinct from the warning tone). */
+.tech{margin:0 auto 16px; max-width:560px; text-align:left; font-size:13px}
+.tech summary{cursor:pointer; color:var(--muted)}
+.tech code{display:block; margin-top:6px; padding:8px 10px; background:var(--code-bg); border:1px solid var(--border); border-radius:8px; font-size:12px; word-break:break-all}
+.cards{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0 0 12px}
+.card{position:relative; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 16px; box-shadow:var(--shadow)}
+.card .lb{font-size:12px; color:var(--muted)}
+.card b{font-size:22px; font-variant-numeric:tabular-nums}
+.card.good{border-color:var(--good)}
+.card.good b{color:var(--good)}
+/* Card 2 (reclaimable) is the "to-do / opportunity" twin of Card 3 (freed, the
+   achievement). It shares the warn palette so the two action cards read as a
+   symmetric pair; both classes are toggled by JS from the scan result, so an
+   empty card falls back to the neutral .card frame instead of a misleading
+   colored border (an amber "all clear" or a green "0 achieved" would mislead). */
+.card.warn{border-color:var(--warn-bd)}
+.card.warn b{color:var(--warn-fg)}
+/* State icons: sit on the right-middle of a colored card, shown only when the
+   card is in its active (colored) state — same .warn/.good class that drives the
+   border, so visibility tracks the card's state with no extra JS. */
+.cicon{position:absolute; right:14px; top:50%; transform:translateY(-50%); width:44px; height:44px; display:none; opacity:.92; pointer-events:none}
+.cicon svg{width:100%; height:100%}
+.card.warn .cicon{display:block; color:var(--warn-fg)}
+.card.good .cicon{display:block; color:var(--good)}
+/* While a scan runs the cards are dimmed to signal "stale, updating" rather
+   than "new values are here". finishScan() removes .refreshing on completion. */
+.cards.refreshing{opacity:.55; filter:saturate(.6); transition:opacity .2s, filter .2s; pointer-events:none}
+/* Filter disclosure: ⚙ toggles .filtering on .qhead. The 4 filter controls grow
+   in from the left via a grid 0fr→1fr track (auto-sizes to content, no magic
+   max-width). The display controls (select-all / sort / fold) stay pinned right. */
+.qhead #btnFilter{width:30px; padding:5px 7px; color:var(--muted); font-size:13px}
+.qhead #btnFilter .ic{width:15px; height:15px}
+.qhead #btnFilter.on,
+.qhead #btnFilter[aria-expanded="true"]{color:var(--accent); border-color:var(--accent); background:var(--accent-soft)}
+.filter-col{display:grid; grid-template-columns:0fr; transition:grid-template-columns .18s ease}
+.qhead.filtering .filter-col{grid-template-columns:1fr}
+.filter-wrap{display:flex; gap:8px; align-items:center; overflow:hidden; min-width:0; white-space:nowrap}
+/* Bottom action bar: Rescan (left) + Clean (right). Since 2026-09-08 it is the
+   LAST element in the body flex column — the footer under it was deleted, so
+   the bottom of the window is just this bar (hidden in views with no actions). */
+.actionbar{display:flex; align-items:center; gap:10px; padding:10px 20px; border-top:1px solid var(--border); background:var(--panel); flex:0 0 auto}
+.actionbar .sp{flex:1}
+.actionbar .scanbtn{font-size:13px; padding:8px 14px}
+.actionbar .danger{font-size:14px; padding:9px 18px}
+/* .danger sets display:inline-flex, which outranks the UA [hidden]{display:none};
+   force-hidden action buttons (swapped per view) must actually disappear. */
+.actionbar [hidden]{display:none !important}
+.stickybar{position:sticky; top:0; z-index:20; background:var(--bg); padding-top:8px}
+.stickybar.is-stuck{border-bottom:1px solid var(--border)}
+button{padding:8px 14px; border-radius:9px; border:1px solid var(--border); background:var(--panel); color:var(--text); cursor:pointer; font-size:13px}
+button.primary{background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600}
+button.danger{background:#dc2626; color:#fff; border-color:#dc2626; font-weight:700; display:inline-flex; align-items:center; gap:6px}
+button.danger:hover{background:#b91c1c}
+[data-theme="dark"] button.danger{background:#ef4444; border-color:#ef4444}
+[data-theme="dark"] button.danger:hover{background:#dc2626}
+button.big{padding:10px 22px; font-size:14px}
+button:disabled{opacity:.45; cursor:not-allowed}
+.scanbtn{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; white-space:nowrap}
+.scanbtn:not(:disabled):hover{filter:brightness(1.08)}
+.scanbtn .ic{width:14px; height:14px; vertical-align:-2px}
+/* Disabled scan button must look clearly inert: dim it (the class rule here
+   outranks the generic `button:disabled{opacity:.45}`), kill any leftover
+   brightness, and never react to hover. Without :not(:disabled) a disabled
+   button still lights up on mouseover in the WebView. */
+.scanbtn:disabled{cursor:not-allowed; opacity:.5; filter:none}
+.scanbar{position:relative; height:3px; width:100%; overflow:hidden; opacity:0; transition:opacity .15s; background:transparent}
+.scanbar.show{opacity:1}
+.scanbar::after{content:""; position:absolute; left:0; top:0; height:100%; width:35%; background:var(--accent); animation:indet .9s ease-in-out infinite}
+@keyframes indet{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
+/* queue header: select-all + live counts + fold */
+.qhead{display:flex; gap:8px; align-items:center; margin:2px 2px 10px; font-size:13px}
+/* Group-level hides must beat .qhead .tbtn's own display (same specificity,
+   later rule wins — hence the element qualifier). */
+.qhead button[hidden], .qhead span[hidden]{display:none}
+.qhead .sp{flex:1}
+.qhead button{font-size:12px; padding:5px 11px; color:var(--muted)}
+.qhead button:hover{color:var(--accent); border-color:var(--accent)}
+.qhead .tbtn{display:inline-flex; align-items:center; gap:6px}
+.qhead .tbtn .ic{width:14px; height:14px; vertical-align:-2px}
+/* Uniform control height. The toolbar already pins every control to 34px, but
+   the list header had no such rule, so the native select (7px block padding,
+   13px font) rendered ~5px taller than the buttons beside it (5px, 12px) — a
+   regression from turning sort into a <select>. Zeroing the block padding
+   parks both at exactly 28px without clipping the taller select text. */
+/* The search box is the third qhead control type; it must join the 28px
+   alignment too, or it keeps the global `padding:7px 10px` vertical padding
+   and renders ~4px taller than the buttons/selects beside it. (Regression
+   from a3b10200, which aligned .tbtn + select but omitted input[type=search].) */
+.qhead .tbtn, .qhead select, .qhead input[type="search"]{height:28px; padding-top:0; padding-bottom:0}
+.qhead input[type=checkbox]{width:15px; height:15px; accent-color:var(--accent); margin:0}
+/* cleanup queue rows */
+.qrow{background:var(--panel); border:1px solid var(--border); border-radius:12px; margin-bottom:10px; overflow:hidden; box-shadow:var(--shadow)}
+.qrow summary{list-style:none; cursor:pointer; padding:12px 16px 10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.qrow summary::-webkit-details-marker{display:none}
+.qrow summary:hover{background:var(--accent-soft)}
+/* The per-extension row checkbox must match the Select-all and per-version
+   checkboxes: a 15px square tinted with the brand accent. Without this rule it
+   falls back to the native ~13px control painted in the system color, so it
+   reads smaller and a different hue than the other two. */
+.rowck{width:15px; height:15px; accent-color:var(--accent); margin:0; cursor:pointer}
+.nm{font-weight:700; display:inline-block; max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle}
+/* Extension icon, fetched lazily per row (hidden until the backend returns a
+   data URI; an empty result leaves it hidden — no broken-image glyph). */
+.ext-ico{width:20px; height:20px; border-radius:4px; object-fit:contain; flex:0 0 auto; background:var(--accent-soft); align-self:center}
+/* Profile grouping (multi-profile, unfiltered view) */
+.pgroup{ margin-top: 0; }
+/* No separator rule at all: the header already reads as a section title (600
+   weight) and the rows are bordered cards, so whitespace alone carries the
+   grouping. A rule under the title cut it off from its own cards; a rule
+   between groups was visually heavier than the grouping needs. */
+.pgroup + .pgroup{ margin-top: 18px; }
+.phead{
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  padding: 6px 10px; margin: 0 0 4px;
+  background: var(--bg);
+}
+.phead-single{ padding-left:2px; }
+.pname{ font-weight:600; font-size:13px; }
+/* Push the meta (and anything after it, e.g. the per-group select button) to
+   the right edge, so the header stays "name … meta action" at any width. */
+.pmeta{ color:var(--muted); font-size:12px; margin-left:auto; }
+/* Placeholder section for a profile with nothing to clean: keep the header but
+   dim the name, so it reads "nothing here" rather than as a real group that
+   failed to load. */
+.pgroup-empty .pname{ color:var(--muted); font-weight:500; }
+/* Per-group bulk select. Deliberately smaller than the toolbar buttons — it is
+   a secondary, profile-scoped action. Overrides the generic button rule. */
+.psel{
+  font-size:11px; padding:2px 9px; border-radius:999px; line-height:1.5;
+  border:1px solid var(--border); background:transparent; color:var(--muted);
+  cursor:pointer; white-space:nowrap;
+}
+.psel:hover{ color:var(--accent); border-color:var(--accent); }
+.profiles-anchor{
+  display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px;
+  padding: 8px 12px; margin: 10px 0 6px;
+  font-size:12px; font-weight:600; color:var(--accent);
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  background: var(--card); border-radius: 6px;
+}
+.profiles-anchor-label{ white-space:nowrap; }
+.profile-jump{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.pjump{
+  font-size:12px; color:var(--accent); text-decoration:none;
+  padding:2px 9px; border:1px solid var(--accent); border-radius:999px;
+  background:transparent; cursor:pointer; line-height:1.5; white-space:nowrap;
+}
+.pjump:hover{ background:var(--accent); color:var(--on-accent, #fff); }
+/* right meta: one line (old-version chip · reclaimable · total occupied).
+   min-height keeps every card's right block the same height so rows stay
+   aligned. (The severity bar that used to sit underneath was disabled
+   2026-09-05; its .rbar rules were removed with it.) */
+.rmeta{margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:3px; min-height:40px; text-align:right}
+.rline{display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end}
+.rwaste{font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; white-space:nowrap}
+.rwaste.nonzero{color:var(--off)}
+.rkeep{color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap}
+/* .key marks the total-size field as the active sort key. It used to be the ONLY time the
+   field rendered at all; now it is always shown and merely emphasised, so the
+   value never vanishes because of an unrelated dropdown. */
+.rkeep.key{color:var(--text); font-weight:600}
+.chev{color:var(--muted); transition:transform .15s}
+details[open] .chev{transform:rotate(90deg)}
+.vlist{border-top:1px solid var(--border); padding:6px 16px 12px 41px}
+.vline{display:flex; gap:8px; align-items:center; padding:5px 0; font-size:13px}
+.vline .sz{margin-left:0; color:var(--muted); font-variant-numeric:tabular-nums}
+.vline .sz.can-clear{color:var(--off)}
+.ck-slot{width:18px; flex:0 0 auto; display:inline-flex; justify-content:center}
+.ck-slot input{margin:0; width:15px; height:15px; accent-color:var(--accent); cursor:pointer}
+/* footer environment status */
+#ftMeta{display:inline-flex; align-items:center; gap:6px; white-space:nowrap}
+/* #ftMeta is the gated OS / Chrome-version diagnostic. It used to sit in the
+   footer; with the footer deleted (2026-09-08) it moved into the header beside
+   the other debug gate. Still display:none by default via the `hidden` attr. */
+.dot{display:inline-block; width:8px; height:8px; border-radius:50%; background:#9ca3af}
+.dot.on{background:#22c55e; box-shadow:0 0 6px #22c55e}
+/* inline SVG icons (no emoji, no external fonts) */
+svg.ic{width:15px; height:15px; flex:0 0 auto; vertical-align:-2px}
+.hicon{width:28px; height:28px; border-radius:6px; vertical-align:-6px; margin-right:6px}
+.ticon{line-height:1}
+.icon-btn{display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px;
+padding:0; border-radius:7px; vertical-align:middle; margin-left:6px; color:var(--muted)}
+.icon-btn:hover{color:var(--accent); border-color:var(--accent)}
+.icon-btn svg{width:14px; height:14px}
+/* The two inline row actions (copy extension link / open folder) are low-frequency
+   helpers: faded out by default, shown on row hover or keyboard focus to keep the
+   list quiet; the slot is reserved so hover never shifts layout.
+   Always visible on touch (no hover). */
+.qrow .icon-btn{opacity:0; transition:opacity .12s}
+.qrow:hover .icon-btn, .qrow:focus-within .icon-btn{opacity:1}
+@media (hover:none){.qrow .icon-btn{opacity:1}}
+.muted{color:var(--muted); font-size:12px}
+.ver{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px}
+.badge{display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; margin:2px 4px 2px 0; white-space:nowrap}
+.b-on{background:var(--good-bg); color:var(--good); border:1px solid currentColor}
+.b-off{background:var(--disabled-bg); color:var(--disabled); border:1px solid currentColor}
+.b-old{background:var(--off-bg); color:var(--off); border:1px solid currentColor}
+.b-pure{background:var(--good-bg); color:var(--good); border:1px solid currentColor}
+.b-bad{background:#fdecec; color:#c62828; border:1px solid currentColor}
+.b-protected{background:transparent; color:var(--muted); border:1px dashed currentColor}
+/* empty states */
+.empty{display:none; text-align:center; background:var(--panel); border:1px solid var(--border);
+border-radius:14px; padding:48px 20px; margin-bottom:10px}
+.empty.show{display:block}
+.empty .eicon svg{width:72px; height:72px}
+.empty .eicon.ok svg{color:var(--good)}
+.empty .eicon.find svg{color:var(--muted)}
+.empty h2{margin:12px 0 4px; font-size:18px}
+.empty p{margin:0 0 16px}
+/* ---- clean flow ---- */
+.steps{display:flex; gap:8px; align-items:center; margin:4px 0 16px}
+.step{display:flex; gap:8px; align-items:center; color:var(--muted); font-size:13px}
+.step .dot{width:24px; height:24px; border-radius:50%; border:1px solid var(--border); display:inline-flex; align-items:center; justify-content:center; font-size:12px; background:var(--panel)}
+.step.cur{color:var(--text); font-weight:600}
+.step.cur .dot{background:var(--accent); border-color:var(--accent); color:#fff}
+.step.done{color:var(--good)}
+.step.done .dot{background:var(--good-bg); border-color:var(--good); color:var(--good)}
+.cstage{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:20px 22px; box-shadow:var(--shadow)}
+.cstage h2{margin:0 0 4px; font-size:18px}
+.rv-item{display:flex; gap:12px; align-items:center; padding:12px 4px; border-bottom:1px solid var(--border)}
+.rv-item:last-child{border-bottom:none}
+.rv-item .nm{font-size:16px; max-width:340px}
+/* The stale version being deleted, pinned next to the extension name so the row
+   reads "this version of this extension will be removed". Styled as a pill to
+   match the app's existing version chip language (.hd-in h1 .ver / .badge),
+   with its own accent-soft/accent (blue) colors — separate from the main
+   queue's amber --off deletable-chip palette. */
+.rv-item .del-ver{margin-left:8px; display:inline-flex; align-items:center; line-height:1; font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent); border:1px solid currentColor; vertical-align:middle}
+.rv-item .ctx{font-size:12px; color:var(--muted); margin-top:2px}
+.rv-item .sz{margin-left:auto; font-weight:700; white-space:nowrap; font-variant-numeric:tabular-nums}
+.rv-foot{display:flex; gap:12px; align-items:center; margin:0 0 14px; padding:8px 0}
+.rv-foot .sp{flex:1}
+/* reviewBar now holds only the informational total (the action buttons moved
+   to the bottom actionbar). No sticky/overlay needed — it is plain text. */
+.rv-foot.topbar{background:transparent}
+.rv-total{font-size:14px}
+.ring-wrap{display:flex; justify-content:center; margin:12px 0}
+.ring{position:relative; width:150px; height:150px}
+.ring svg{width:100%; height:100%; transform:rotate(-90deg)}
+.ring circle{fill:none; stroke-width:10; stroke-linecap:round}
+.ring-bg{stroke:var(--border)}
+.ring-fg{stroke:var(--accent); stroke-dasharray:326.7; stroke-dashoffset:326.7; transition:stroke-dashoffset .25s}
+.ring-num{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:700}
+.cl-cur{text-align:center; margin-bottom:8px; word-break:break-all}
+.cl-list{max-height:260px; overflow-y:auto; border:1px solid var(--border); border-radius:10px}
+.cl-item{display:flex; gap:8px; padding:7px 12px; border-bottom:1px solid var(--border); font-size:12.5px; align-items:center}
+.cl-item:last-child{border-bottom:none}
+.cl-item .st{margin-left:auto; white-space:nowrap}
+/* spinner for the cleaning stage */
+.spin{width:15px; height:15px; border-radius:50%; border:2px solid var(--border);
+border-top-color:var(--accent); animation:rot .7s linear infinite; flex:0 0 auto}
+@keyframes rot{to{transform:rotate(360deg)}}
+/* per-row status once the delete resolves: stop spinning, show a static icon
+   (green check on success, amber warning on failure) instead of a rotating one */
+.cl-ok{width:15px; height:15px; flex:0 0 auto; color:var(--good)}
+.cl-err{width:15px; height:15px; flex:0 0 auto; color:var(--off)}
+.cl-ok svg, .cl-err svg{width:15px; height:15px}
+.done-hero{display:flex; justify-content:center}
+.done-hero svg{width:64px; height:64px; color:var(--good)}
+.done-num{text-align:center; font-size:20px; margin:4px 0}
+.done-num b{font-size:56px; font-variant-numeric:tabular-nums}
+#stage-done p{text-align:center}
+select,input[type="search"]{padding:7px 10px; border-radius:9px; border:1px solid var(--border); background:var(--panel); color:var(--text); font-size:13px}
+/* uniform control height across the filter row (the red Clean action stays bigger) */
+/* Inner focus ring: the default OS glow overflows the rounded box. 2px (was
+   1px) so the indicator is actually perceivable — 1px failed visibility. */
+select:focus-visible,input[type="search"]:focus-visible,button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+#fKw{width:100%; padding-left:30px}
+/* search box with inline magnifier icon */
+.search-wrap{position:relative; display:inline-flex; align-items:center; flex:0 0 140px; width:140px; min-width:0}
+.search-wrap .s-ic{position:absolute; left:9px; top:50%; transform:translateY(-50%); width:14px; height:14px; color:var(--muted); pointer-events:none; display:flex; align-items:center; justify-content:center}
+.search-wrap .s-ic svg{width:14px; height:14px; display:block}
+.search-wrap input[type="search"]{width:100%}
+#btnGoClean{margin-left:auto}
+/* native select restyled to match toolbar buttons (theme-aware chevron) */
+.sel-wrap{position:relative; display:inline-flex; align-items:center}
+.sel-wrap select{appearance:none; -webkit-appearance:none; padding-right:28px; cursor:pointer; max-width:260px}
+.sel-wrap::after{content:""; position:absolute; right:11px; width:7px; height:7px; pointer-events:none;
+border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:translateY(-2px) rotate(45deg)}
+.sel-wrap:hover::after{border-color:var(--accent)}
+/* 2026-09-08: no footer any more — the bottom of the window is the actionbar
+   (and, when a view has no actions, nothing at all). Only the toast body's bold
+   link color is left of the old footer section. */
+#toast b{color:var(--accent)}
+/* back-to-top floating button: hidden until the queue is scrolled. Sits just
+   above the actionbar (which is now the last element in the flex column). */
+#toTop{position:fixed; right:18px; bottom:76px; z-index:60;
+  width:42px; height:42px; padding:0; border-radius:50%;
+  border:1px solid var(--border); background:var(--panel); color:var(--text);
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+  box-shadow:var(--shadow);
+  opacity:0; visibility:hidden; transform:translateY(10px); pointer-events:none;
+  transition:opacity .18s ease, transform .18s ease, visibility .18s}
+#toTop.show{opacity:1; visibility:visible; transform:translateY(0); pointer-events:auto}
+#toTop:hover{border-color:var(--accent); color:var(--accent)}
+#toTop svg{width:20px; height:20px}
+/* ---- fatal error overlay ---- */
+#fatal, #consent{position:fixed; inset:0; z-index:100; display:none; align-items:center; justify-content:center;
+  background:rgba(15,18,30,.62); backdrop-filter:blur(2px); padding:24px}
+#fatal.show, #consent.show{display:flex}
+.fatal-card{position:relative; max-width:560px; width:100%; background:var(--panel); border:1px solid var(--border);
+  border-radius:16px; padding:24px 26px; box-shadow:var(--shadow)}
+.fatal-card h2{margin:0 0 12px; font-size:19px}
+.fatal-card #fatalMsg{background:var(--code-bg); border:1px solid var(--border); border-radius:10px;
+  padding:12px 14px; font-size:12px; line-height:1.5; max-height:280px; overflow:auto; white-space:pre-wrap; word-break:break-word; margin:0 0 16px}
+.fatal-actions{display:flex; gap:10px; flex-wrap:wrap}
+#consent .fatal-actions{justify-content:flex-end}
+.fatal-actions .primary{background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600}
+.fatal-actions .primary:hover{filter:brightness(1.08)}
+.fatal-card .muted{margin:14px 0 0; font-size:12px}
+.fatal-close{position:absolute; top:12px; right:14px; width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--border); background:transparent; color:var(--muted); border-radius:8px; font-size:20px; line-height:1; cursor:pointer}
+.fatal-close:hover{color:var(--fg); border-color:var(--fg); background:var(--hover)}
+#toast b{color:var(--accent)}
+/* Static "deletion is permanent" note above the review list (E2). */
+.rv-note{margin:4px 0 12px; font-size:12px}
+@media(max-width:900px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.cards{grid-template-columns:1fr}}
+/* Language switcher: collapsed button shows the short glyph; the popover
+   lists full language names. */
+.lang-sw{position:relative; display:inline-flex}
+#langShort{font-size:13px; min-width:14px; text-align:center}
+.lang-pop{position:absolute; top:calc(100% + 6px); right:0; z-index:70; min-width:148px;
+  display:flex; flex-direction:column; gap:2px; padding:6px; background:var(--panel);
+  border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow)}
+.lang-opt{display:flex; align-items:center; width:100%; text-align:left; padding:7px 10px;
+  border:none; background:transparent; color:var(--text); font-size:13px; border-radius:7px; cursor:pointer}
+.lang-opt:hover{background:var(--hover)}
+.lang-opt.on{background:var(--accent-soft); color:var(--accent); font-weight:600}
+/* The .lang-pop rule sets display:flex, which would override the UA [hidden]
+   {display:none}; this re-asserts hidden so the toggle actually closes it. */
+.lang-pop[hidden]{display:none}

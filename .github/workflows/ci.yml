@@ -1,0 +1,121 @@
+# Public-repo CI: push/PR automatically run clippy + tests AND build all
+# three platform bundles (public minutes are free). Bundles upload as
+# artifacts for inspection; publishing a Release still only happens from
+# release.yml on `v*` tags (draft, manual Publish).
+#
+# Generated at export from the private ci.yml (manual-only gates removed).
+# Never edit it in the public repo.
+# Note: the clippy+tests job below still runs on Windows by design — see its
+# own comment (lints are NOT platform-independent when code sits behind #[cfg]).
+#
+# Third-party actions are pinned to full commit SHAs (not floating tags);
+# bump them via Dependabot or by hand.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Bundling is manual-only: push/PR still trigger the workflow, but this
+    # job builds on every push/PR. Tests live in the clippy job below
+    # so every trigger still runs them.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: appimage,deb
+          # Paused while Linux is the platform under verification; uncomment to
+          # build/verify the Windows bundle again (upload globs already cover nsis).
+          # - os: windows-latest
+          #   bundles: nsis
+    runs-on: ${{ matrix.os }}
+    env:
+      APPLE_SIGNING_IDENTITY: "-"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history (NOT the default shallow clone): build.rs derives the
+          # build number from `git rev-list --count HEAD`, so a shallow checkout
+          # (1 commit) makes the About dialog show "build 1" instead of the real
+          # commit count. Keep this in sync with the clippy job below.
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Node 20 reached end-of-life 2026-04-30. 24 is the current LTS
+          # (supported to 2028-04); 22 still works but is maintenance-only
+          # until 2027-04, so picking it means revisiting this next spring.
+          # Nothing here pins to a specific Node: the only npm dependency is
+          # the Tauri CLI, and the shipped app runs on the system WebView.
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: src-tauri
+      - name: Install Linux WebView deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+      - run: npm ci
+      - name: Build bundles
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-${{ matrix.os }}
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+  clippy:
+    # Manual-only, same as the build job above.
+    # Lint gate so quality does not stay a local-only concern: any warning
+    # (needless borrow, redundant local, test module before production code,
+    # ...) fails CI.
+    #
+    # Also runs `cargo test`: tests used to live in the build job, and
+    # release.yml never ran them — without this step nothing would run tests
+    # automatically at all. Colocating here reuses the warm runner/cache.
+    #
+    # Runs on Windows, not Linux: lints are NOT platform-independent when
+    # code is behind #[cfg]. `dirs_home` shipped as dead code on Windows
+    # only, and a Linux lint gate never saw it. Lint the platform we build.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history (NOT the default shallow clone): build.rs derives the
+          # build number from `git rev-list --count HEAD`, so a shallow checkout
+          # (1 commit) makes the About dialog show "build 1" instead of the real
+          # commit count. Keep this in sync with the clippy job below.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          workspaces: src-tauri
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+

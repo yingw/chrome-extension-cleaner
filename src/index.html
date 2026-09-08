@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chrome Extension Cleaner</title>
+<link rel="stylesheet" href="styles.css">
+<!-- Real-OS marker (window-chrome fusion). The Rust init script (lib.rs) runs
+     at document-start on every platform, but on Windows WebView2 it runs before
+     <html> exists, so it may only touch `window` — the old one-liner that wrote
+     documentElement.dataset threw a TypeError that was silently swallowed,
+     `data-os` was never set and the self-drawn caption stayed display:none.
+     Copy it onto <html> here: <html> already exists inside <head>, and this
+     runs before any body content is parsed, so CSS applies at first paint. -->
+<script>if(window.__CEC_OS__)document.documentElement.dataset.os=window.__CEC_OS__;</script>
+</head>
+<body>
+<!-- Fixed header: fused titlebar on macOS (Overlay) — blank areas drag the window. -->
+<header data-tauri-drag-region="deep"><div class="hd-in">
+  <span class="vdiv only-macos" id="divMac" aria-hidden="true"></span>
+  <h1><img class="hicon" src="logo.png" alt="logo"> <span>Chrome Extension Cleaner</span> <span class="ver" id="verBadge"></span></h1>
+  <!-- 2026-09-06: slogan kept behind a gate (SHOW_SLOGAN in app.js) instead of an
+       HTML comment, so it can be re-shown without digging through git. -->
+  <span class="sub" id="slogan" data-i18n="subtitle" hidden>A local tool to remove stale extension-version folders for Google Chrome.</span>
+  <span class="sp"></span>
+  <!-- TEMP PREVIEW ONLY: OS switcher to preview Win/Linux caption styles on
+       macOS. Visual only (caption never wired while overridden). REMOVE before
+       Phase W ships. -->
+  <span class="os-preview" id="osPreview" hidden><button type="button" data-os="macos" title="macOS">M</button><button type="button" data-os="windows" title="Windows">W</button><button type="button" data-os="linux" title="Linux">L</button></span>
+  <!-- 2026-09-08: ftMeta (OS / Chrome version + run-state) used to sit in the
+       footer, which no longer exists — moved here next to the other debug gate
+       (#osPreview). Still behind a gate (SHOW_FTMETA in app.js) instead of an
+       HTML comment, so it stays re-showable without digging through git. -->
+  <span class="muted" id="ftMeta" hidden></span>
+  <!-- TEMP PREVIEW ONLY (gated by SHOW_CONSENT_PREVIEW): shows the consent modal for style review. -->
+  <button class="tbtn" id="btnConsentPrev" title="Preview cleanup consent">Consent</button>
+  <a class="ghbtn" id="btnGitHub" href="https://github.com/yingw/chrome-ext-cleaner" target="_blank" rel="noopener" title="GitHub" aria-label="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></svg></a>
+  <span class="lang-sw" id="langSw"><button class="tbtn" id="btnLang" aria-haspopup="true" aria-expanded="false" title="Language"><span id="langShort"></span></button><div class="lang-pop" id="langPop" hidden role="menu"></div></span>
+  <button class="tbtn ticon" id="btnTheme" title="Theme"></button>
+  <span class="vdiv only-caption" id="divCap" aria-hidden="true"></span>
+  <!-- Self-drawn caption (Phase W1): min / max-restore toggle / close.
+       Rendered only on Win/Linux via CSS ([data-os] gate, macOS keeps native
+       traffic lights). Labels are set from i18n by wireCaption(); static
+       English here is the pre-JS fallback. -->
+  <span class="caption" id="captionBar"><button class="capbtn" id="btnCapMin" type="button" aria-label="Minimize" title="Minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg></button><button class="capbtn" id="btnCapMax" type="button" aria-label="Maximize" title="Maximize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></svg></button><button class="capbtn close" id="btnCapClose" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span>
+</div></header>
+
+<!-- Scrollable middle -->
+<main><div class="mn-in">
+  <!-- ============ VIEW: list (cleanup queue) ============ -->
+  <section id="view-list">
+    <div class="cards">
+      <div class="card" id="cardTotal"><div class="lb" data-i18n="cTotal">Extension size</div><b><span id="tTotal">-</span></b> <span class="muted" id="uTotal">MB</span><div class="muted" id="dTotal"></div></div>
+      <div class="card" id="cardWaste"><div class="lb" data-i18n="cWaste">Reclaimable (old versions)</div><b><span id="tWaste">-</span></b> <span class="muted" id="uWaste">MB</span><div class="muted" id="dWaste"></div><span class="cicon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 10.5 22 2"/><path d="M14.734 13.841a2 2 0 00-.314-2.42L12.58 9.58a2 2 0 00-2.421-.314l-7.657 4.461A1 1 0 002.3 15.3l6.403 6.403a1 1 0 001.571-.204z"/><path d="m5 18 2-2"/><path d="m7.699 10.7 5.602 5.601"/></svg></span></div>
+      <div class="card" id="cardSession"><div class="lb" data-i18n="cSession">Freed this session</div><b><span id="tSession">0</span></b> <span class="muted" id="uSession">MB</span><div class="muted"><span id="tSessionCount">0</span> <span data-i18n="foldersRemoved">folders removed</span></div><span class="cicon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg></span></div>
+    </div>
+    <!-- 2026-09-08: #chromeWarn is NOT here any more. It used to sit directly
+         above the footer as a flex sibling of main/footer; the footer is gone
+         now and the warn moved into #notifSlot, a body-level fixed overlay
+         centred above the actionbar (see that slot's comment further down).
+         Fixed positioning is fine again because the bottom bar has a constant
+         height — the old worry was the footer growing with the log. -->
+    <div id="scanBar" class="scanbar"></div>
+    <!-- Multi-profile jump anchor strip. Kept behind SHOW_ANCHOR_BAR (app.js)
+         instead of removed, so it can be re-shown without digging through git. -->
+    <div id="profilesAnchorBar" hidden></div>
+    <div class="qhead">
+      <button class="tbtn icononly" id="btnFilter" title="Filter" aria-expanded="false"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg></button>
+      <span class="filter-col"><span class="filter-wrap">
+        <span class="sel-wrap"><select id="fProfile"><option value="" data-i18n="allProfiles">All profiles</option></select></span>
+        <button class="tbtn" id="fStatusBtn"></button>
+        <button class="tbtn ghost-on" id="btnScope"></button>
+        <span class="search-wrap"><span class="s-ic" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg></span><input type="search" id="fKw" data-i18n-ph="searchPh" placeholder="Search name / ID"></span>
+      </span></span>
+      <span class="sp"></span>
+      <button class="tbtn" id="btnSelAll" title="select all / deselect all"><span class="icbox"></span><span id="selAllLabel">Select all</span></button>
+      <!-- 2026-09-06: qCount (the "N extensions · 6/6 · SIZE" line) is hidden behind
+           a gate (SHOW_QCOUNT in app.js) instead of an HTML comment, so it can be
+           re-shown without digging through git. -->
+      <span class="muted" id="qCount" hidden></span>
+      <span class="sel-wrap"><select id="fSortBtn" aria-label="Sort"></select></span>
+      <button class="tbtn" id="btnFold"><span class="icbox"></span><span id="foldLabel">Collapse</span></button>
+      <!-- TEST ONLY: extension-name language switcher, kept behind a false gate
+           (SHOW_NAME_LOCALE_TEST in app.js) instead of an HTML comment. Hidden by default. -->
+      <span id="nameLocaleTest" hidden><span class="sel-wrap" data-test-locale><select id="fNameLocale" title="TEST: extension name language">
+        <option value="zh-CN">中文</option>
+        <option value="zh-TW">繁體中文</option>
+        <option value="en">English</option>
+        <option value="ko">한국어</option>
+        <option value="ja">日本語</option>
+        <option value="de">Deutsch</option>
+        <option value="fr">Français</option>
+        <option value="es">Español</option>
+        <option value="pt-BR">Português (Brasil)</option>
+        <option value="ru">Русский</option>
+      </select></span></span>
+    </div>
+    <div id="queue"></div>
+    <div class="empty" id="empty">
+      <span class="eicon ok" id="emptyIcon"></span>
+      <h2 id="emptyTitle"></h2>
+      <p class="muted" id="emptySub"></p>
+      <div id="emptyBtns"></div>
+    </div>
+  </section>
+
+  <!-- ============ VIEW: prerequisite (Chrome not detected) ============ -->
+  <!-- Shown INSTEAD of the list view: no cards, no filters, no queue, no
+       Clean button. A scan never ran, so nothing here may imply it did. -->
+  <section id="view-nopreq" hidden>
+    <div class="empty show">
+      <span class="eicon find"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+      <h2 data-i18n="nopreqTitle">Chrome not found</h2>
+      <p class="muted" data-i18n="nopreqSub">Chrome user data was not found, so the scan cannot start.</p>
+      <p class="muted" data-i18n="nopreqScope">Supports the default Chrome Stable profile only.</p>
+      <details class="tech">
+        <summary data-i18n="nopreqTech">Technical details</summary>
+        <div><span data-i18n="nopreqExpected">Expected location</span>: <code id="nopreqPath"></code></div>
+      </details>
+      <div><button class="primary big" id="btnRecheck" data-i18n="nopreqRecheck">Check again</button></div>
+    </div>
+  </section>
+
+  <!-- ============ VIEW: clean flow ============ -->
+  <section id="view-clean" hidden>
+    <div class="steps" id="cleanSteps">
+      <div class="step" data-s="review"><span class="dot">1</span><span data-i18n="sReview">Review</span></div>
+      <div class="step" data-s="cleaning"><span class="dot">2</span><span data-i18n="sCleaning">Cleaning</span></div>
+      <div class="step" data-s="done"><span class="dot">3</span><span data-i18n="sDone">Done</span></div>
+    </div>
+
+    <div class="rv-foot topbar" id="reviewBar">
+      <span class="rv-total"><b id="rvTotal">0</b> <span id="rvUnit">MB</span> · <span id="rvCount">0</span> <span data-i18n="rvItems">folders</span></span>
+    </div>
+    <div class="cstage" id="stage-review">
+      <h2><span data-i18n="rvTitle">Ready to clean</span> <span class="muted" style="font-weight:400; font-size:13px" data-i18n="rvSub">— only stale versions below will be deleted.</span></h2>
+      <p class="rv-note muted" id="rvPermanent" data-i18n="rvPermanent"></p>
+      <div id="rvList"></div>
+    </div>
+
+    <div class="cstage" id="stage-cleaning" hidden>
+      <h2 data-i18n="clTitle">Cleaning…</h2>
+      <div class="ring-wrap">
+        <div class="ring"><svg viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="52" class="ring-bg"/>
+          <circle cx="60" cy="60" r="52" class="ring-fg" id="ringFg"/>
+        </svg><div class="ring-num" id="ringNum">0%</div></div>
+      </div>
+      <div class="cl-cur muted" id="clCur">…</div>
+      <div class="cl-list" id="clList"></div>
+    </div>
+    <div class="cstage" id="stage-done" hidden>
+      <div class="done-hero" id="doneHero"></div>
+      <div class="done-num"><b id="doneMb">0</b> <span id="doneUnit">MB</span></div>
+      <p class="muted" id="doneSub"></p>
+      <div class="cl-list" id="doneList"></div>
+    </div>
+  </section>
+</div></main>
+
+<!-- Bottom action bar: Rescan (left) + Clean (right). Since 2026-09-08 this is
+     the LAST element in the body flex column — the footer status bar under it
+     was deleted (its two text blocks duplicated the header and the cards), so
+     the bottom of the window is just this bar. showView() hides it in views that
+     have no actions (cleaning, no-Chrome). Both buttons act on the current scan
+     result, so they sit together — not scattered. -->
+<div class="actionbar" id="actionbar">
+  <button id="btnScan" class="scanbtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg> <span data-i18n="rescan">Rescan</span></button>
+  <button id="btnBackList" class="scanbtn" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg> <span data-i18n="back">Back</span></button>
+  <span class="sp"></span>
+  <button class="danger" id="btnGoClean"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span id="cleanLabel" data-i18n="cleanBtn">Clean</span></button>
+  <button class="danger" id="btnStartClean" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9V3z"/></svg><span data-i18n="startClean">Start cleaning</span></button>
+  <button id="btnDoneBack" class="scanbtn" hidden><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg> <span data-i18n="backToList">Back to list</span></button>
+</div>
+
+<!-- 2026-09-08: the footer status bar is GONE. It carried two text blocks that
+     duplicated what is already on screen (status → scanBar / summary cards /
+     reviewBar / done page; version → the header badge), so both were deleted
+     rather than rearranged. The bottom of the window is now just the actionbar.
+     The notification slot used to live in that footer; it is now a body-level
+     fixed overlay centred just above the actionbar (see .notif-slot in CSS).
+     warn (persistent) and toast (transient) still share ONE slot and replace
+     each other instead of stacking — a persistent chip must not be shoved
+     around by a 3-second message. toast() flips `.state-toast` to swap them;
+     renderEnv() toggles `.no-warn`. `no-warn` starts on so the warn stays
+     hidden until the first renderEnv() runs. -->
+<div class="notif-slot no-warn" id="notifSlot">
+  <div class="warn" id="chromeWarn" role="alert"><span id="chromeWarnText"></span><button class="x" id="warnX" title="dismiss">✕</button></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"><span id="toastBody"></span><button class="x" id="toastX" type="button" aria-label="Dismiss" title="Dismiss">✕</button></div>
+</div>
+<button id="toTop" aria-label="Back to top" title="Back to top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+
+<!-- Fatal error overlay: shown by the top-level window error handlers. -->
+<div id="fatal" style="display:none" role="alertdialog" aria-modal="true" aria-labelledby="fatalTitle" data-tauri-drag-region="deep">
+  <div class="fatal-card">
+    <button class="fatal-close" id="btnFatalClose" aria-label="Close" title="Close">×</button>
+    <h2 id="fatalTitle">Something went wrong</h2>
+    <pre id="fatalMsg" data-tauri-drag-region="false"></pre>
+    <div class="fatal-actions">
+      <button class="tbtn" id="btnFatalCopy">Copy error report</button>
+      <button class="primary" id="btnFatalGitHub">Report on GitHub</button>
+    </div>
+    <p class="muted">Copy the report and open an issue — it helps us fix the bug faster.</p>
+  </div>
+</div>
+
+<!-- First-cleanup confirmation: openClean intercepts before prepare_cleanup; refusing builds no plan. -->
+<div id="consent" style="display:none" role="alertdialog" aria-modal="true" aria-labelledby="consentTitle">
+  <div class="fatal-card">
+    <h2 id="consentTitle" data-i18n="consentTitle">Before your first cleanup</h2>
+    <div class="muted" style="margin:0 0 16px; font-size:14px; line-height:1.8">
+      <p style="margin:0 0 8px" id="consentP1"></p>
+      <p style="margin:0 0 8px" id="consentP2"></p>
+      <p style="margin:0 0 8px" id="consentP3"></p>
+      <p style="margin:0"><span id="consentP4"></span></p>
+      <p style="margin:6px 0 0"><span data-i18n="consentPathLabel">Path: </span><code id="consentPath"></code> <button class="icon-btn" id="btnConsentOpen" title="Open folder" aria-label="Open folder"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></button></p>
+    </div>
+    <div class="fatal-actions consent-actions">
+      <button class="tbtn" id="btnConsentBack" data-i18n="consentBack">Back</button>
+      <button class="primary" id="btnConsentGo" data-i18n="consentGo">Continue to cleanup preview</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

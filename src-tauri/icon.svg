@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- ExtPrune icon draft v4: three same-size blocks, fanned; two close dark slates + teal top. -->
+  <!-- 1. deep indigo background tile -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="#201C4E"/>
+  <!-- 2. bottom old layer, darkest slate -->
+  <rect x="60" y="270" width="276" height="180" rx="46" fill="#4C5B7D"/>
+  <!-- 3. middle old layer, mid slate -->
+  <rect x="118" y="166" width="276" height="180" rx="46" fill="#6E7FA6"/>
+  <!-- 4. big 64px diagonal cuts on both old layers (reveal background) -->
+  <path d="M336 450 L272 450 L336 386 Z" fill="#201C4E"/>
+  <path d="M394 346 L336 346 L394 288 Z" fill="#201C4E"/>
+  <!-- 5. intact rounded TEAL layer on top (the kept version) -->
+  <rect x="176" y="62" width="276" height="180" rx="46" fill="#2DD4BF"/>
+</svg>
